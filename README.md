@@ -7,8 +7,8 @@ word means. The style follows
 [gokenshadow/LearnJapaneseKaraokeSubtitles](https://github.com/gokenshadow/LearnJapaneseKaraokeSubtitles).
 
 ```
-Japanese:  この５年越しの思いを 杠に伝える！
-gloss:     THIS 5 YEAR-goshi no THOUGHT o Yuzuriha ni CONVEY!
+Japanese:  もう三十分も待ってるよ！
+gloss:     ALREADY 30 MINUTES mo WAIT-tteru yo!
 ```
 
 (Both rows are karaoke: each word is highlighted while it is spoken; a romaji row can be added.)
@@ -104,7 +104,7 @@ found online, a Japanese text subtitle track inside the video (`.mkv`) is used.
 See what would be downloaded for a video:
 
 ```bash
-uv run karaoke subs "D:/Anime/[Group] Watashi ni Tenshi ga Maiorita! [05][1080p].mkv"
+uv run karaoke subs "D:/Anime/[SubsPlease] Sousou no Frieren - 05 (1080p).mkv"
 ```
 
 Later seasons often have their own name in the catalog (*Dr. STONE. STONE WARS*): if the video is
@@ -139,7 +139,7 @@ default = "openrouter"          # used by --gloss llm
 kind = "openai"
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
-model = "google/gemini-2.5-flash"
+model = "deepseek/deepseek-v4.1-flash"
 ```
 
 Per-profile settings: `batch` (lines per request), `jobs` (requests at once; lower it on rate

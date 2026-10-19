@@ -19,11 +19,11 @@ def files(tmp_path):
 def test_time_args_match_the_cli(files):
     media, subs = files
     form = {"media": f'"{media}"', "subs": str(subs), "gloss": ["claude", "bogus"],
-            "claude_model": "claude-opus-5-5", "claude_effort": "medium", "claude_glossary": True,
+            "claude_model": "claude-opus-5-5", "claude_effort": "medium", "glossary": True,
             "romaji": True, "review": False, "no_sync": True, "method": "ctc", "lead": "0.05", "out": ""}
     assert time_args(form) == [
         "time", str(media), str(subs), "--gloss", "claude", "--claude-model", "claude-opus-5-5",
-        "--claude-effort", "medium", "--claude-glossary", "--romaji", "--no-sync", "--lead", "0.05"]
+        "--claude-effort", "medium", "--glossary", "--romaji", "--no-sync", "--lead", "0.05"]
 
 
 def test_timing_only_and_missing_files(files):
@@ -34,6 +34,13 @@ def test_timing_only_and_missing_files(files):
         time_args({"media": "", "subs": str(subs)})
     with pytest.raises(ValueError):
         time_args({"media": str(media), "subs": str(subs), "en_subs": str(subs) + ".missing"})
+
+
+def test_glossary_pass_for_any_llm_glosser(files):
+    media, subs = files
+    assert time_args({"media": str(media), "subs": str(subs), "gloss": ["llm"], "model": "opus",
+                      "glossary": True}) == ["time", str(media), str(subs), "--gloss", "llm", "--model", "opus", "--glossary"]
+    assert "--glossary" not in time_args({"media": str(media), "subs": str(subs), "gloss": ["dict"], "glossary": True})
 
 
 def test_out_dir_and_preview(files):

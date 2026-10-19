@@ -47,10 +47,10 @@ def time_args(form: dict) -> list[str]:
         if "claude" in gloss:
             args += ["--claude-model", form.get("claude_model") or "claude-haiku-5-5",
                      "--claude-effort", form.get("claude_effort") or "xhigh"]
-            if form.get("claude_glossary"):
-                args.append("--claude-glossary")
         if "llm" in gloss and (model := str(form.get("model") or "").strip()):
             args += ["--model", model]
+        if form.get("glossary") and ("claude" in gloss or "llm" in gloss):  # any LLM glosser
+            args.append("--glossary")
     if en := clean_path(form.get("en_subs")):
         args += ["--en-subs", en]
     for flag in ("romaji", "review", "no_sync", "vocals", "no_verify"):
@@ -345,9 +345,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 400)
 
 
+class Server(ThreadingHTTPServer):
+    # HTTPServer sets SO_REUSEADDR, which on Windows lets a second process bind a port already in
+    # use: an old `karaoke ui` then keeps answering the browser with its old page.
+    allow_reuse_address = False
+
+
 def serve(port: int = 8765, open_browser: bool = True, user_dir: Path | None = None) -> None:
     Handler.user_dir = user_dir
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    try:
+        server = Server(("127.0.0.1", port), Handler)
+    except OSError as e:
+        raise SystemExit(f"port {port} is already in use (another `karaoke ui` is running?): {e}")
     url = f"http://127.0.0.1:{port}/"
     print(f"karaoke ui on {url}  (Ctrl+C to quit)", flush=True)
     if open_browser:

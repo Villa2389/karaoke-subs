@@ -78,55 +78,55 @@ video { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; dis
 </style>
 </head>
 <body>
-<header><h1>Karaoke Subs</h1><span>anime episode + Japanese subtitles → word-by-word karaoke with English glosses</span></header>
+<header><h1>Karaoke Subs</h1></header>
 <main>
 <div>
   <section>
     <h2>1 · Episode</h2>
     <label class="f" for="media">Video or audio file</label>
     <div class="row"><input type="text" id="media" placeholder="C:\Videos\episode01.mkv"><button data-pick="media" data-kind="media">Browse…</button></div>
-    <label class="f" for="subs">Japanese subtitles <small>(.srt / .ass; empty = downloaded automatically)</small></label>
-    <div class="row"><input type="text" id="subs" placeholder="auto: searched online by the series and episode"><button id="findSubs" title="Download this episode's Japanese subtitles">Find online</button><button data-pick="subs" data-kind="subs">Browse…</button></div>
+    <label class="f" for="subs">Japanese subtitles <small>(.srt / .ass; empty = found online)</small></label>
+    <div class="row"><input type="text" id="subs" placeholder="found online by series and episode"><button id="findSubs" title="Download this episode's Japanese subtitles">Find online</button><button data-pick="subs" data-kind="subs">Browse…</button></div>
     <div class="note" id="subsNote"></div>
-    <label class="f" for="en_subs">English subtitles <small>(optional: better word senses + name spelling)</small></label>
+    <label class="f" for="en_subs">English subtitles <small>(optional)</small></label>
     <div class="row"><input type="text" id="en_subs"><button data-pick="en_subs" data-kind="subs">Browse…</button></div>
   </section>
 
   <section>
     <h2>2 · English glosses</h2>
     <div class="checks">
-      <label><input type="checkbox" name="gloss" value="claude"><span>Claude <small>through Claude Code on your Claude login · ~3 min</small></span></label>
+      <label><input type="radio" name="gloss" value=""><span>None</span></label>
+      <label><input type="radio" name="gloss" value="claude"><span>Claude Code</span></label>
       <div id="claudeOpts">
         <div class="grid2">
           <div><label class="f" for="claude_model">Model</label>
             <select id="claude_model">
               <option value="claude-haiku-5-5">Haiku 5.5 (default)</option>
               <option value="claude-sonnet-5-5">Sonnet 5.5</option>
-              <option value="claude-opus-5-5">Opus 5.5 (best, ~20× usage)</option>
+              <option value="claude-opus-5-5">Opus 5.5</option>
             </select></div>
           <div><label class="f" for="claude_effort">Effort</label>
             <select id="claude_effort">
               <option>low</option><option>medium</option><option>high</option><option selected>xhigh</option><option>max</option>
             </select></div>
         </div>
-        <div class="checks"><label><input type="checkbox" id="claude_glossary"><span>Glossary pass <small>one gloss per word across the episode (+~2 points)</small></span></label></div>
+        <div class="checks" id="glossOpts"><label><input type="checkbox" id="glossary"><span>Glossary pass</span></label></div>
       </div>
-      <label><input type="checkbox" name="gloss" value="llm"><span>Another model <small>local Qwen (free, GPU, ~8 min) or an API model from your config</small></span></label>
+      <label><input type="radio" name="gloss" value="llm"><span>Another model</span></label>
       <div id="modelOpts">
         <label class="f" for="model">Model profile</label>
         <div class="row"><select id="model"></select><button id="testModel" title="send one tiny request to this model">Test</button></div>
         <p class="muted" id="modelNote" style="margin:4px 0 0"></p>
       </div>
-      <label><input type="checkbox" name="gloss" value="dict"><span>Dictionary only <small>JMdict, instant, rough</small></span></label>
+      <label><input type="radio" name="gloss" value="dict"><span>Dictionary only</span></label>
     </div>
-    <p class="muted" style="margin:8px 0 0">None ticked: timing only (Japanese + romaji karaoke).</p>
   </section>
 
   <section>
     <h2>3 · Extras</h2>
     <div class="checks">
-      <label><input type="checkbox" id="romaji" checked><span>Romaji row <small>also write a version with romaji above the English</small></span></label>
-      <label><input type="checkbox" id="review"><span>Review sheet <small>.tsv of suspicious glosses (runs “Another model” if no model is ticked)</small></span></label>
+      <label><input type="checkbox" id="romaji" checked><span>Romaji row</span></label>
+      <label><input type="checkbox" id="review"><span>Review sheet <small>.tsv of suspicious glosses (runs “Another model” if no model is selected)</small></span></label>
     </div>
     <details>
       <summary>Advanced</summary>
@@ -179,9 +179,7 @@ video { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; dis
   </section>
 
   <section id="words">
-    <div class="head"><h2>Words</h2><span class="muted" id="knownCount"></span><button id="wordsReload">Refresh</button></div>
-    <p class="muted" style="margin:0 0 8px">Words you know stay in romaji in the karaoke. Words heard often, and the most
-      heard words of each series you made subtitles for, are asked here once.</p>
+    <div class="head"><h2>Review words</h2><span class="muted" id="knownCount"></span><button id="wordsReload">Refresh</button></div>
     <div id="wordTabs"></div>
     <div id="card" class="card" hidden>
       <div class="cardTop"><span id="cardSection"></span><span class="muted" id="cardPos"></span></div>
@@ -204,7 +202,7 @@ video { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; dis
 
 <script>
 const $ = id => document.getElementById(id);
-const FIELDS = ["media", "subs", "en_subs", "claude_model", "claude_effort", "claude_glossary", "romaji", "review",
+const FIELDS = ["media", "subs", "en_subs", "claude_model", "claude_effort", "glossary", "romaji", "review",
   "method", "lead", "stream", "tag", "no_sync", "vocals", "no_verify", "out", "reference", "fixes", "llm_model", "model",
   "pv_start", "pv_duration", "pv_romaji"];
 
@@ -221,11 +219,18 @@ function load() {
   if (!f) { document.querySelector("input[name=gloss][value=claude]").checked = true; return; }
   for (const k of FIELDS) { const el = $(k); if (!el || f[k] === undefined) continue;
     if (el.type === "checkbox") el.checked = f[k]; else el.value = f[k]; }
-  for (const el of document.querySelectorAll("input[name=gloss]")) el.checked = (f.gloss || []).includes(el.value);
+  const pick = (f.gloss || [])[0] ?? "";  // one choice now; older saves may hold several
+  for (const el of document.querySelectorAll("input[name=gloss]")) el.checked = el.value === pick;
 }
 function syncClaude() {
-  $("claudeOpts").style.display = document.querySelector("input[name=gloss][value=claude]").checked ? "" : "none";
-  $("modelOpts").style.display = document.querySelector("input[name=gloss][value=llm]").checked ? "" : "none";
+  const claude = document.querySelector("input[name=gloss][value=claude]").checked;
+  const llm = document.querySelector("input[name=gloss][value=llm]").checked;
+  $("claudeOpts").style.display = claude ? "" : "none";
+  $("modelOpts").style.display = llm ? "" : "none";
+  // the glossary pass sits under the picked model: Claude Code's options or the model profile's
+  const host = claude ? $("claudeOpts") : llm ? $("modelOpts") : null;
+  if (host) host.append($("glossOpts"));
+  $("glossOpts").style.display = host ? "" : "none";
   const m = models.find(x => x.name === $("model").value);
   $("modelNote").textContent = m && m.needs ? "Set the environment variable " + m.needs + " (your API key) and restart karaoke ui." : "";
 }

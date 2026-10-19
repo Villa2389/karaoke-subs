@@ -43,7 +43,7 @@ default = "haiku"
 kind = "openai"
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
-model = "google/gemini-2.5-flash"
+model = "deepseek/deepseek-v4.1-flash"
 
 [profiles.openai]
 kind = "openai"
