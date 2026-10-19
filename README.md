@@ -18,7 +18,8 @@ gloss:     THIS 5 YEAR-goshi no THOUGHT o Yuzuriha ni CONVEY!
 - **Readable glosses**: the code decides the structure (which words, romaji endings, particles,
   names, numbers); an LLM only chooses the English word. Rules are written down in
   [docs/glossing-rules.md](docs/glossing-rules.md).
-- **Finds the subtitles for you**: next to the video, in a series folder, or inside the `.mkv`.
+- **Downloads the subtitles for you**, by the series and episode in the video's file or folder
+  name (no account needed).
 - **Any model**: Claude through your Claude Code login, any OpenAI-compatible API (OpenAI,
   OpenRouter, Gemini, DeepSeek, Ollama, LM Studio...), the Claude API, or a local GGUF.
 - **Learns with you**: words you know stop being translated (`karaoke learn`, Anki import).
@@ -61,14 +62,14 @@ The easiest way is the local web interface:
 uv run karaoke ui
 ```
 
-It opens `http://127.0.0.1:8765`: pick the episode, the subtitles are found for you (or pick
-them), choose the glossers, press Run, and watch the log. When it finishes, render a preview video
+It opens `http://127.0.0.1:8765`: pick the episode, the subtitles are downloaded for you (or pick
+your own file), choose the glossers, press Run, and watch the log. When it finishes, render a preview video
 and play it in the page. The *Words* section asks about words you have heard often.
 
 From the command line:
 
 ```bash
-uv run karaoke time "Show - 01.mkv" --gloss claude                 # subtitles found automatically
+uv run karaoke time "Show - 01.mkv" --gloss claude                 # subtitles downloaded automatically
 uv run karaoke time "Show - 01.mkv" "Show - 01.ja.srt" --gloss claude   # or give them
 uv run karaoke preview "Show - 01.mkv" "work/Show - 01/Show - 01.ja.ctc.gloss-claude.ass" --romaji
 ```
@@ -79,50 +80,37 @@ subtitles (mpv, VLC, MPC-HC) or burn them in with `preview`.
 ## Getting Japanese subtitles
 
 The program needs Japanese subtitles with the dialogue (line timing does not have to match your
-video: it is re-synced). [jimaku.cc](https://jimaku.cc) has them for most anime. English subtitles
-are optional and improve word senses and name spelling (`--en-subs`).
+video: it is re-synced). Usually they are downloaded for you (below); you can also pass your own
+file, e.g. from [jimaku.cc](https://jimaku.cc). English subtitles are optional and improve word
+senses and name spelling (`--en-subs`).
 
-### Automatic detection
+### Automatic download
 
-When `time` is given no subtitle file (or `auto`), it looks, best match first:
+When `time` is given no subtitle file (or `auto`), it downloads them, **no account or key
+needed**, from the [Ajatt-Tools Japanese subtitle catalog](https://github.com/Ajatt-Tools/kitsunekko-mirror)
+(thousands of anime series and films: volunteer uploads plus a mirror of kitsunekko.net,
+updated every few hours):
 
-1. **Next to the video**: a file with the same name (`Show - 01.ja.srt`) or the same episode number,
-   in the video's folder or a `Subs/` / `subtitles/` subfolder.
-2. **In a subtitle library**: a folder whose **name matches the series** (from the video's folder
-   and file name), searched for the episode number. Common abbreviations are understood:
-   a folder `wataten` matches *Watashi ni Tenshi ga Maiorita!*, `konosuba` matches
-   *Kono Subarashii Sekai ni Shukufuku wo!*.
-3. **Inside the video**: a text subtitle track (ASS/SRT) in an `.mkv`, extracted with FFmpeg.
+- the **series is read from the video's file name**, or from its **folder name** when the file
+  name only has the episode (`Dr. Stone [BD]/Episode 07.mkv`);
+- the **episode** comes from the number in the file name (`[03]`, ` - 03`, `S01E03`, `第3話`, ...);
+- the closest series name wins (`Dr Stone` takes *Dr. STONE*, not *Dr. STONE. STONE WARS*); a season
+  `.zip` is unpacked when needed, and the file must really be Japanese (from its name or its text,
+  so Chinese subtitles are never taken).
 
-The language comes from the file name (`.ja.`, `.jpn.`, `[JPN]`; `.chs.`, `.en.`, ...) or, when
-there is no tag, from the text itself, so Chinese subtitles shipped with a release are never taken
-for Japanese ones.
+Downloads are kept in `~/.karaoke-subs/subtitles/`, so a re-run works offline. When nothing is
+found online, a Japanese text subtitle track inside the video (`.mkv`) is used.
 
-Libraries are `~/.karaoke-subs/subs`, plus any you add:
-
-```bash
-uv run karaoke time "D:/Anime/Wataten/[Group] Watashi ni Tenshi ga Maiorita! [05].mkv" --subs-dir D:/Subs
-```
-
-or permanently in `~/.karaoke-subs/config.toml` (`subs_dirs = ["D:/Subs"]`) or the
-`KARAOKE_SUBS_DIR` environment variable. A library can look like this:
-
-```
-D:/Subs/
-├── Dr. Stone/        Dr.Stone.S01E01.ja.srt, Dr.Stone.S01E02.ja.srt, ...
-└── wataten/
-    └── subs/         ep01.ja.srt, ep02.ja.srt, ...
-```
-
-Check what would be used, without running anything:
+See what would be downloaded for a video:
 
 ```bash
-uv run karaoke subs "D:/Anime/Wataten/[Group] Watashi ni Tenshi ga Maiorita! [05].mkv" --subs-dir D:/Subs
+uv run karaoke subs "D:/Anime/[Group] Watashi ni Tenshi ga Maiorita! [05][1080p].mkv"
 ```
 
-`--en-subs auto` finds the English subtitles the same way, and `--names-from auto` reads the other
-episodes' Japanese subtitles in the same folder, so a name whose reading is only given once in the
-series (furigana) is read correctly in every episode.
+Later seasons often have their own name in the catalog (*Dr. STONE. STONE WARS*): if the video is
+named only "Dr. Stone S02E03", rename it after the season, or pass the subtitle file yourself.
+`--names-from auto` also downloads the series' other episodes, so a name whose reading
+(furigana) is only given once in the series is read correctly in every episode.
 
 ## Choosing the model
 
@@ -195,7 +183,7 @@ be imported: `uv run karaoke learn --import-anki "Deck name" --anki-field Word`.
 | `karaoke ui` | local web interface (127.0.0.1 only) |
 | `karaoke time VIDEO [SUBS]` | timing, glossing, all outputs |
 | `karaoke preview VIDEO GLOSS.ass` | MP4 with Japanese / romaji / English karaoke burned in |
-| `karaoke subs VIDEO...` | which subtitles would be found |
+| `karaoke subs VIDEO...` | download and show the subtitles `time` would use |
 | `karaoke models [--test NAME]` | list or test model profiles |
 | `karaoke learn` | known-word review, Anki import |
 | `karaoke compare LABELS GOLD...` | score a run against a reference karaoke script, by grammar category |
@@ -232,7 +220,7 @@ JMdict + LLM ─▶ one English gloss per content word ─▶ display rules ─�
 
 | Step | Module | Notes |
 |---|---|---|
-| Subtitle search | `subfind.py` | Same name / episode number / series folder / embedded track; language by tag or text. |
+| Subtitle download | `subfind.py` | Series and episode from the names, online catalog, season zips, embedded tracks; language by tag or text. |
 | Audio | `audio.py` | Any media → 16 kHz mono PCM through FFmpeg. |
 | Subtitle cleanup | `subs.py` | Drops speaker labels, sound tags, song lines; keeps furigana as readings and reuses them for names. |
 | Sync | `sync.py` | Cross-correlates Silero VAD speech with the subtitle on/off pattern (release offsets, ads). |
@@ -261,16 +249,20 @@ songs). Vocal isolation did not improve either.
 ## Your files
 
 Everything the program keeps for you is in `~/.karaoke-subs` (`KARAOKE_USER_DIR` to move it):
-`config.toml`, `known_words.txt`, `words.json`, `dict/` (JMdict), `models/`, `tools/`, `subs/`
-(subtitle library) and `logs/`.
+`config.toml`, `known_words.txt`, `words.json`, `dict/` (JMdict), `models/`, `tools/`, `subtitles/`
+(downloaded subtitles) and `logs/`.
 
 ## Troubleshooting
 
 - **`ffmpeg not found`**: install FFmpeg (see Requirements) and open a new terminal.
 - **"median alignment confidence 0.10"**: the audio is probably a dub. Pick the Japanese track
   with `--stream "0:a:m:language:jpn"` (or `0:a:1`).
-- **No subtitles found**: run `uv run karaoke subs VIDEO` to see what is searched; name the file
-  like the video (`episode.ja.srt`) or add a library with `--subs-dir`.
+- **No subtitles found**: run `uv run karaoke subs VIDEO` to see the series and episode read from
+  the name. Rename the file or folder to the series' romaji name (as on
+  [subtitles.ajatt.top](https://subtitles.ajatt.top/)), or get the file from
+  [jimaku.cc](https://jimaku.cc) and pass it: `karaoke time VIDEO SUBS`.
+- **"GitHub's hourly limit ... is used up"**: the catalog allows 60 lookups an hour without an
+  account; wait, or set a `GITHUB_TOKEN` environment variable.
 - **`claude` not on PATH**: install Claude Code and log in once (`claude`, then `/login`), or use
   another profile.
 - **PowerShell**: quote paths with spaces and brackets: `"[Group] Show - 01.mkv"`.
@@ -291,6 +283,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 This project is released under the [MIT License](LICENSE). It downloads or uses:
 
 - [JMdict](https://www.edrdg.org/jmdict/j_jmdict.html) (EDRDG, CC BY-SA 4.0), downloaded on first use.
+- Japanese subtitles from the [Ajatt-Tools catalog](https://github.com/Ajatt-Tools/kitsunekko-mirror),
+  downloaded on demand for your own episodes.
 - [MMS forced aligner](https://pytorch.org/audio/stable/tutorials/forced_alignment_for_multilingual_data_tutorial.html)
   weights through torchaudio (Meta, CC BY-NC 4.0: non-commercial use).
 - [Silero VAD](https://github.com/snakers4/silero-vad) (MIT), [fugashi](https://github.com/polm/fugashi)

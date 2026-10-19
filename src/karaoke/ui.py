@@ -65,15 +65,17 @@ def time_args(form: dict) -> list[str]:
 
 
 def find_subs(form: dict) -> dict:
-    """Subtitle files `time` would find for the chosen video (subfind.py)."""
-    from .subfind import find_subtitles
+    """Download the chosen video's Japanese subtitles (what `time` would use)."""
+    from .subfind import CatalogError, find_online
 
     media = Path(clean_path(form.get("media")))
     if not media.is_file():
         raise ValueError(f"episode not found: {media}")
-    ja, en = find_subtitles(media, "ja"), find_subtitles(media, "en")
-    return {"subs": str(ja.path) if ja else "", "how": ja.how if ja else "",
-            "en_subs": str(en.path) if en else "", "en_how": en.how if en else ""}
+    try:
+        found = find_online(media)
+    except CatalogError as e:
+        raise ValueError(str(e)) from None
+    return {"subs": str(found.path) if found else "", "how": found.how if found else ""}
 
 
 def model_list() -> dict:

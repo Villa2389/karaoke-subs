@@ -1,19 +1,17 @@
+import io
+import json
+import zipfile
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import pytest
 
-from karaoke.subfind import (episode_number, find_subtitles, name_language, same_series, series_subtitles,
+from karaoke.subfind import (Catalog, episode_number, find_online, name_language, same_series, series_online,
                              series_title, text_language)
 
 JA = "1\n00:00:01,000 --> 00:00:02,000\nおはよう、千空。今日も科学の時間だ。\n\n" * 5
 ZH = "1\n00:00:01,000 --> 00:00:02,000\n早上好，千空。今天也是科学时间。\n\n" * 5
 EN = "1\n00:00:01,000 --> 00:00:02,000\nGood morning, Senku. It's time for the science of the day.\n\n" * 5
-
-
-def touch(path: Path, text: str = "") -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return path
 
 
 @pytest.mark.parametrize("name, n", [
@@ -38,7 +36,8 @@ def test_series_title_and_matching():
     assert same_series("wataten", "Watashi ni Tenshi ga Maiorita!")  # abbreviation
     assert same_series("Konosuba", "Kono Subarashii Sekai ni Shukufuku wo!")
     assert not same_series("Dr. Stone", "Watashi ni Tenshi ga Maiorita!")
-    assert not same_series("wataten", "Dr. Stone")
+    assert not same_series("x", "BEYBLADE X")
+    assert not same_series("Mimi wo Sumaseba", "180-byou de Kimi no Mimi wo Shiawase ni Dekiru ka")
 
 
 def test_language_from_name_and_text():
@@ -52,46 +51,64 @@ def test_language_from_name_and_text():
     assert text_language("short") is None
 
 
-def test_same_name_next_to_video_wins_and_chinese_is_skipped(tmp_path):
-    media = touch(tmp_path / "[G] Show [01][1080p].mkv")
-    touch(tmp_path / "[G] Show [01][1080p].chs.ass", ZH)
-    touch(tmp_path / "[G] Show [01][1080p].cht.ass", ZH)
-    ja = touch(tmp_path / "[G] Show [01][1080p].ass", JA)  # untagged: the text says Japanese
-    touch(tmp_path / "[G] Show [02][1080p].ja.ass", JA)
-    found = find_subtitles(media, "ja", [])
-    assert found.path == ja and "same name" in found.how
-    assert find_subtitles(media, "en", []) is None
+class FakeCatalog(Catalog):
+    """The catalog answered from memory: {(section, folder): {relative path: bytes}}."""
+
+    def __init__(self, folders: dict, cache: Path):
+        super().__init__(cache)
+        self.folders, self.calls = folders, []
+
+    def _request(self, url: str) -> bytes:
+        self.calls.append(url)
+        if "/git/trees/" in url:
+            tree = unquote(urlparse(url).path.split("/git/trees/main:subtitles/")[1])
+            section, _, folder = tree.partition("/")
+            if not folder:
+                return json.dumps({"tree": [{"path": f, "type": "tree"} for s, f in self.folders if s == section]
+                                   }).encode()
+            return json.dumps({"tree": [{"path": n, "type": "blob", "size": len(b)}
+                                        for n, b in self.folders[(section, folder)].items()]}).encode()
+        section, folder, name = unquote(url.split("/main/subtitles/")[1]).split("/", 2)
+        return self.folders[(section, folder)][name]
 
 
-def test_episode_in_subs_folder_and_outputs_ignored(tmp_path):
-    media = touch(tmp_path / "Show - 03.mkv")
-    touch(tmp_path / "Subs" / "Show - 02.ja.srt", JA)
-    ja = touch(tmp_path / "Subs" / "Show - 03.ja.srt", JA)
-    en = touch(tmp_path / "Subs" / "Show - 03.en.srt", EN)
-    touch(tmp_path / "Show - 03.ja.ctc.gloss-llm.ass", JA)  # this program's output, not a source
-    assert find_subtitles(media, "ja", []).path == ja
-    assert find_subtitles(media, "en", []).path == en
+def series(name: str, files: dict, section: str = "anime_tv") -> dict:
+    return {(section, name): {n: b.encode() if isinstance(b, str) else b for n, b in files.items()}}
 
 
-def test_library_folder_named_after_the_series(tmp_path):
-    videos = tmp_path / "Downloads" / "[VCB-Studio] Watashi ni Tenshi ga Maiorita! [1080p]"
-    media = touch(videos / "[VCB-Studio] Watashi ni Tenshi ga Maiorita! [05][1080p].mkv")
-    library = tmp_path / "subs"
-    touch(library / "dr_stone" / "ep05.ja.srt", JA)  # same episode number, other series
-    ja = touch(library / "wataten" / "subs" / "ep05.ja.srt", JA)
-    others = [touch(library / "wataten" / "subs" / f"ep0{n}.ja.srt", JA) for n in (1, 2)]
-    found = find_subtitles(media, "ja", [library])
-    assert found.path == ja and "library" in found.how
-    assert sorted(series_subtitles(ja)) == others
+def test_episode_downloaded_from_the_right_series(tmp_path):
+    catalog = FakeCatalog(series("Dr. STONE", {"Dr.STONE.S01E03.ja.srt": JA})
+                          | series("Dr. STONE. STONE WARS", {"Dr.STONE.S02E03.ja.srt": JA})
+                          | series("Watashi ni Tenshi ga Maiorita!", {
+                              "[Erai-raws] Watashi ni Tenshi ga Maiorita! - 02 [1080p].srt": JA,
+                              "[Erai-raws] Watashi ni Tenshi ga Maiorita! - 03 [1080p].chs.srt": ZH,
+                              "[Erai-raws] Watashi ni Tenshi ga Maiorita! - 03 [1080p].srt": JA}), tmp_path / "cache")
+    media = tmp_path / "[VCB-Studio] Watashi ni Tenshi ga Maiorita! [03][1080p].mkv"
+    found = find_online(media, catalog)
+    assert found.path == tmp_path / "cache" / "Watashi ni Tenshi ga Maiorita!" /         "[Erai-raws] Watashi ni Tenshi ga Maiorita! - 03 [1080p].srt"
+    assert find_online(tmp_path / "Dr_Stone_03.mkv", catalog).path.name == "Dr.STONE.S01E03.ja.srt"
+    calls = len(catalog.calls)
+    assert find_online(media, catalog).path == found.path  # second time: listings and file cached
+    assert len(catalog.calls) == calls
 
 
-def test_other_series_with_same_episode_number_is_not_taken(tmp_path):
-    media = touch(tmp_path / "Dr. Stone - 05.mkv")
-    touch(tmp_path / "Other Show - 05.ja.srt", JA)
-    assert find_subtitles(media, "ja", []) is None
+def test_series_from_the_folder_name_and_season_zip(tmp_path):
+    pack = io.BytesIO()
+    with zipfile.ZipFile(pack, "w") as z:
+        for n in (1, 2, 3):
+            z.writestr(f"Show/Some Show - {n:02}.ja.srt", JA)
+    catalog = FakeCatalog(series("Some Show", {"Some Show S1 (BD).zip": pack.getvalue()}), tmp_path / "cache")
+    media = tmp_path / "Some Show [BD 1080p]" / "Episode 02.mkv"  # no series in the file name
+    assert find_online(media, catalog).path.name == "Some Show - 02.ja.srt"
 
 
-def test_film_with_one_video_in_its_folder(tmp_path):
-    media = touch(tmp_path / "Whisper of the Heart (1995) [BD 1080p].mkv")
-    ja = touch(tmp_path / "subtitles" / "Mimi wo Sumaseba.srt", JA)
-    assert find_subtitles(media, "ja", []).path == ja
+def test_other_episodes_for_names(tmp_path):
+    catalog = FakeCatalog(series("Some Show", {f"Some Show - {n:02}.srt": JA for n in (1, 2, 3)}), tmp_path)
+    assert [p.name for p in series_online(tmp_path / "Some Show - 02.mkv", catalog)] ==         ["Some Show - 01.srt", "Some Show - 03.srt"]
+
+
+def test_unknown_series_and_generic_folders(tmp_path):
+    catalog = FakeCatalog(series("Downloads Club", {"Downloads Club - 01.srt": JA})
+                          | series("BEYBLADE X", {"BEYBLADE X - 01.srt": JA}), tmp_path)
+    assert find_online(tmp_path / "Downloads" / "Totally Unknown Show - 01.mkv", catalog) is None
+    assert find_online(tmp_path / "x" / "Other Show - 01.mkv", catalog) is None  # one shared letter is not a match

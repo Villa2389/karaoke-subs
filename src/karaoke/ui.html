@@ -85,8 +85,8 @@ video { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; dis
     <h2>1 · Episode</h2>
     <label class="f" for="media">Video or audio file</label>
     <div class="row"><input type="text" id="media" placeholder="C:\Videos\episode01.mkv"><button data-pick="media" data-kind="media">Browse…</button></div>
-    <label class="f" for="subs">Japanese subtitles <small>(.srt / .ass, e.g. from jimaku.cc; empty = found automatically)</small></label>
-    <div class="row"><input type="text" id="subs" placeholder="auto: next to the video, in a series folder, or inside the video"><button id="findSubs" title="Look for Japanese and English subtitles for this video">Find</button><button data-pick="subs" data-kind="subs">Browse…</button></div>
+    <label class="f" for="subs">Japanese subtitles <small>(.srt / .ass; empty = downloaded automatically)</small></label>
+    <div class="row"><input type="text" id="subs" placeholder="auto: searched online by the series and episode"><button id="findSubs" title="Download this episode's Japanese subtitles">Find online</button><button data-pick="subs" data-kind="subs">Browse…</button></div>
     <div class="note" id="subsNote"></div>
     <label class="f" for="en_subs">English subtitles <small>(optional: better word senses + name spelling)</small></label>
     <div class="row"><input type="text" id="en_subs"><button data-pick="en_subs" data-kind="subs">Browse…</button></div>
@@ -347,13 +347,13 @@ document.querySelectorAll("button[data-pick]").forEach(b => b.onclick = async ()
 document.addEventListener("change", e => { save(); syncClaude(); if (e.target.id === "media" || e.target.id === "out") refresh(); });
 async function findSubs(onlyEmpty) {
   const f = form();
-  if (!f.media) return;
+  if (!f.media || (onlyEmpty && f.subs)) return;
+  $("subsNote").textContent = "Searching online…";
   try {
     const j = await post("/api/find-subs", { media: f.media });
-    if (j.subs && !(onlyEmpty && f.subs)) $("subs").value = j.subs;
-    if (j.en_subs && !(onlyEmpty && f.en_subs)) $("en_subs").value = j.en_subs;
-    $("subsNote").textContent = j.subs ? "Found: " + j.how + (j.en_subs ? "; English: " + j.en_how : "")
-      : "No subtitle file found for this video (a track inside the video is still tried when you run).";
+    if (j.subs) $("subs").value = j.subs;
+    $("subsNote").textContent = j.subs ? "Found: " + j.how
+      : "Not found online (a subtitle track inside the video is still tried when you run).";
     save();
   } catch (e) { $("subsNote").textContent = e.message; }
 }

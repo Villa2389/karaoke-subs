@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from collections import Counter
@@ -64,26 +65,38 @@ def resolve_glossers(args: argparse.Namespace) -> list[tuple[str, object]]:
 
 
 def resolve_subtitles(args: argparse.Namespace, media: Path, out: Path) -> None:
-    """Fill in args.subs, and --en-subs / --names-from given as `auto`, from the files found for
-    `media` (subfind.py). Exits with the places searched when no Japanese subtitles are found."""
-    from .subfind import library_dirs, locate, series_subtitles
+    """Fill in args.subs (and --names-from given as `auto`) from the online catalog, else from a
+    subtitle track inside the video (subfind.py). Exits with what to do when nothing is found."""
+    from .subfind import CatalogError, extract_embedded, find_online, series_online
 
-    libraries = library_dirs([Path(d) for d in args.subs_dir or []])
-    if not args.subs or args.subs == "auto":
-        found = locate(media, "ja", out, libraries)
+    if args.subs in (None, "auto"):
+        found, problem = None, ""
+        try:
+            found = find_online(media)
+            if found is None:
+                problem = f"the online catalog has no subtitles for {media.name}"
+        except CatalogError as e:
+            problem = str(e)
         if found is None:
-            where = [str(media.resolve().parent)] + [str(d) for d in libraries]
-            sys.exit("no Japanese subtitles found for this video. Searched: " + "; ".join(where)
-                     + ". Pass the file (karaoke time VIDEO SUBS), put it next to the video with the same "
-                       "name (episode.ja.srt), or add a subtitle library with --subs-dir (one folder per series).")
-        args.subs = str(found.path)
+            found = extract_embedded(media, out)
+        if found is None:
+            sys.exit(f"no Japanese subtitles found: {problem}, and none inside the video. Run `karaoke subs VIDEO` "
+                     "to see the series and episode read from the name, or give the file: karaoke time VIDEO SUBS")
+        if problem:
+            print(f"online: {problem}")
         print(f"subs: {found}")
-    if args.en_subs == "auto":
-        found = locate(media, "en", out, libraries)
-        args.en_subs = str(found.path) if found else None
-        print(f"english subs: {found or 'none found, continuing without'}")
+        # Outputs are named after the subtitles: <video>.ja.ctc.gloss-*.ass, not the download's name.
+        local = out / f"{media.stem}.ja{found.path.suffix}"
+        out.mkdir(parents=True, exist_ok=True)
+        if found.path.resolve() != local.resolve():
+            shutil.copyfile(found.path, local)
+        args.subs = str(local)
     if args.names_from == ["auto"]:
-        args.names_from = [str(p) for p in series_subtitles(Path(args.subs))]
+        try:
+            args.names_from = [str(p) for p in series_online(media)]
+        except CatalogError as e:
+            print(f"names from: {e}")
+            args.names_from = []
         print(f"names from: {len(args.names_from)} other episodes' subtitles")
 
 
@@ -309,12 +322,9 @@ def main(argv: list[str] | None = None) -> None:
     t = sub.add_parser("time", help="word-level karaoke timing for one episode")
     t.add_argument("media", help="video or audio file")
     t.add_argument("subs", nargs="?", default="auto",
-                   help="Japanese .srt/.ass (line boundaries + text); left out or `auto`: found automatically "
-                        "(same name or episode number next to the video, a --subs-dir library folder named "
-                        "like the series, or a subtitle track inside the video)")
-    t.add_argument("--subs-dir", action="append", metavar="DIR",
-                   help="subtitle library to search, one folder per series (repeatable; also $KARAOKE_SUBS_DIR, "
-                        "`subs_dirs` in config.toml, ~/.karaoke-subs/subs)")
+                   help="Japanese .srt/.ass (line boundaries + text); left out or `auto`: downloaded from "
+                        "an online catalog by the series and episode in the video's file or folder name "
+                        "(no account needed), else a subtitle track inside the video")
     t.add_argument("--method", choices=["ctc", "proportional"], default="ctc")
     t.add_argument("--min-score", type=float, default=0.0,
                    help="CTC confidence below which a line falls back to proportional timing "
@@ -328,7 +338,7 @@ def main(argv: list[str] | None = None) -> None:
     t.add_argument("--reference", help="hand-timed karaoke .ass to evaluate against")
     t.add_argument("--names-from", nargs="+", metavar="SUBS",
                    help="other episodes' Japanese subtitles: name readings (furigana) given there count here too; "
-                        "`auto`: the other episodes next to the subtitles used")
+                        "`auto`: the other episodes' subtitles, downloaded")
     t.add_argument("--out", help="output folder (default work/<media stem>)")
     t.add_argument("--tag", help="suffix for output file names")
     t.add_argument("--gloss", help="comma list of glossers to run: dict, llm (the --model profile), "
@@ -349,8 +359,7 @@ def main(argv: list[str] | None = None) -> None:
                    help="write <subs>.review.tsv: suspicious LLM glosses + the verifier's decisions (implies llm)")
     t.add_argument("--review-min", type=int, default=2,
                    help="line score to flag (number=3, nonword=2, unusual=1 per word)")
-    t.add_argument("--en-subs", help="English subtitles for the same episode: context for the LLM + name spelling; "
-                                     "`auto`: found like the Japanese ones")
+    t.add_argument("--en-subs", help="English subtitles for the same episode: context for the LLM + name spelling")
     t.add_argument("--no-verify", action="store_true",
                    help="skip the verifier's second look at suspicious LLM glosses")
     t.add_argument("--romaji", action="store_true",
@@ -360,9 +369,8 @@ def main(argv: list[str] | None = None) -> None:
                    help="translate every word and do not count words for `learn` (e.g. for `compare` runs)")
     t.add_argument("--user-dir", help="folder with known_words.txt and words.json (default ~/.karaoke-subs)")
     t.set_defaults(func=cmd_time)
-    s = sub.add_parser("subs", help="show which subtitles `time` would find for a video (nothing is run)")
+    s = sub.add_parser("subs", help="download a video's Japanese subtitles (what `time` would use)")
     s.add_argument("media", nargs="+", help="video or audio file(s)")
-    s.add_argument("--subs-dir", action="append", metavar="DIR", help="subtitle library to search (repeatable)")
     s.set_defaults(func=cmd_subs)
     dr = sub.add_parser("doctor", help="check that everything needed is installed (ffmpeg, GPU, dictionary, models)")
     dr.add_argument("--config", help="model profiles file (default $KARAOKE_CONFIG or ~/.karaoke-subs/config.toml)")
@@ -410,23 +418,22 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def cmd_subs(args: argparse.Namespace) -> None:
-    from .subfind import embedded_tracks, find_subtitles, library_dirs
+    from .subfind import CatalogError, embedded_tracks, episode_number, find_online, series_title
 
-    libraries = library_dirs([Path(d) for d in args.subs_dir or []])
-    print("libraries: " + (", ".join(map(str, libraries)) or "none"))
     for m in map(Path, args.media):
-        print(f"\n{m.name}")
-        for lang, label in (("ja", "japanese"), ("en", "english")):
-            found = find_subtitles(m, lang, libraries)
-            print(f"  {label:<9} {found or '-'}")
+        print(f"\n{m.name}\n  series {series_title(m.name) or series_title(m.resolve().parent.name)!r}, "
+              f"episode {episode_number(m.name)}")
+        try:
+            print(f"  online   {find_online(m) or 'not found'}")
+        except CatalogError as e:
+            print(f"  online   {e}")
         tracks = embedded_tracks(m)
         if tracks:
-            print("  inside:   " + ", ".join(f"#{t['index']} {t['language'] or '?'} {t['codec']}" for t in tracks))
+            print("  inside:  " + ", ".join(f"#{t['index']} {t['language'] or '?'} {t['codec']}" for t in tracks))
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
     import platform
-    import shutil
 
     from .paths import USER_DIR, dict_dir
 

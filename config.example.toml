@@ -37,13 +37,6 @@
 # Profile used by `--gloss llm` when --model is not given (built-in default: local).
 default = "haiku"
 
-# Subtitle libraries searched when `karaoke time` is given no subtitle file: one folder per
-# series, named like the series (or its usual abbreviation), the files named with the episode
-# number. ~/.karaoke-subs/subs is always searched too.
-#   D:/Subs/Dr. Stone/Dr.Stone.S01E05.ja.srt
-#   D:/Subs/wataten/ep05.ja.srt
-# subs_dirs = ["D:/Subs"]
-
 # --- Hosted APIs (OpenAI-compatible) ----------------------------------------------------------
 
 [profiles.openrouter]          # one key, hundreds of models: https://openrouter.ai/models

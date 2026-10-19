@@ -1,12 +1,12 @@
 """Where the program keeps its files, on any OS and however it was installed.
 
 User folder (KARAOKE_USER_DIR, default ~/.karaoke-subs):
-  config.toml          model profiles and subs_dirs (see config.example.toml)
+  config.toml          model profiles (see config.example.toml)
   known_words.txt      words you know (vocab.py), words.json: words heard per episode
   dict/                JMdict_e.gz, downloaded on first use, and its index
   models/              GGUF files for the `local` profile, vocal separation models
   tools/llama-cuda/    a llama.cpp build for the `local` profile (else llama-server on PATH)
-  subs/                a subtitle library: one folder per series (subfind.py)
+  subtitles/           subtitles downloaded from the online catalog, one folder per series (subfind.py)
   logs/                llama-server.log
 
 A source checkout's own data/dict, models and tools folders are still used when they exist,

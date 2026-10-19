@@ -1,16 +1,16 @@
-"""Find the subtitles of an episode automatically.
+"""Find the Japanese subtitles of an episode on the internet, no account or key needed.
 
-Looked for, best first:
-1. next to the media file: same name (`Show - 01.mkv` + `Show - 01.ja.srt`), or the same
-   episode number, in the media's folder or a subtitle subfolder of it (`Subs/`, `subtitles/`);
-2. in subtitle libraries (`--subs-dir`, $KARAOKE_SUBS_DIR, `subs_dirs` in config.toml, and
-   ~/.karaoke-subs/subs): the folder whose name matches the series (taken from the media's
-   folder name and file name; abbreviations like `wataten` for "Watashi ni Tenshi ga
-   Maiorita!" count), then the file with the episode number;
-3. a text subtitle track inside the media file (mkv), extracted with ffmpeg.
+Source: the Ajatt-Tools Japanese subtitle catalog on GitHub (github.com/Ajatt-Tools/kitsunekko-mirror:
+volunteer uploads plus a mirror of kitsunekko.net, updated every few hours), one folder per series.
+The series is taken from the video's file name, or its folder name when the file name only has the
+episode ("Some Show [1080p]/Episode 02.mkv"), and matched with the catalog's folder names; the
+episode number comes from the file name. Downloads are kept in ~/.karaoke-subs/subtitles/, so a
+re-run needs no network.
 
-The language comes from the file name (`.ja.`, `[JPN]`, `.chs.`, ...) or, without a tag, from
-the text itself: Japanese has kana, Chinese has kanji without kana.
+When nothing is found online, a text subtitle track inside the video (mkv) is used.
+
+A downloaded file must really be Japanese: the language comes from its name (`.ja.`, `.chs.`)
+or from its text (Japanese has kana; Chinese has kanji without kana).
 """
 from __future__ import annotations
 
@@ -19,14 +19,21 @@ import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+CATALOG_API = "https://api.github.com/repos/Ajatt-Tools/kitsunekko-mirror"
+CATALOG_RAW = "https://raw.githubusercontent.com/Ajatt-Tools/kitsunekko-mirror/main"
+CATALOG_BRANCH = "main"
+CATALOG_SECTIONS = ("anime_tv", "anime_movie")
 SUB_EXTS = {".srt", ".ass", ".ssa", ".vtt"}
 MEDIA_EXTS = {".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v", ".ts", ".mp3", ".m4a", ".wav", ".flac", ".aac",
               ".opus", ".ogg"}
-SUB_DIR_NAMES = {"sub", "subs", "subtitle", "subtitles", "字幕", "japanese", "english", "jp", "ja", "jpn", "en",
-                 "eng"}
 LANG_TAGS = {
     "ja": {"ja", "jp", "jpn", "jap", "japanese", "日本語", "jpsc", "jptc"},
     "en": {"en", "eng", "english"},
@@ -38,6 +45,10 @@ TEXT_CODECS = {"ass", "ssa", "subrip", "srt", "mov_text", "webvtt", "text"}
 ISO_639_2 = {"ja": {"jpn", "ja", "jp"}, "en": {"eng", "en"}}
 NOISE_WORDS = {"bd", "bdrip", "web", "webrip", "web-dl", "hevc", "avc", "flac", "aac", "x264", "x265", "h264",
                "h265", "10bit", "8bit", "dual", "audio", "multi", "subs", "sub", "raw", "tv", "uncensored"}
+# Folder names that say nothing about the series (the video is then named by its file only).
+GENERIC_FOLDERS = {"downloads", "download", "videos", "video", "anime", "movies", "movie", "films", "film", "tv",
+                   "series", "shows", "media", "desktop", "documents", "torrents", "completed", "incoming", "new folder",
+                   "home", "public", "music", "watch", "to watch", "seasons", "season", "episodes", "extras"}
 EN_WORDS = {"the", "you", "and", "to", "is", "it", "that", "what", "of", "a", "i", "this", "we", "me", "my",
             "are", "do", "don't", "i'm", "it's", "have", "no", "not", "be", "your", "for", "in"}
 
@@ -50,20 +61,18 @@ _EPISODE_RES = [
 ]
 _LOOSE_NUMBER = re.compile(r"(?<![\dA-Za-z])(\d{1,3})(?:v\d)?(?![\dA-Za-z])")
 _BRACKETS = re.compile(r"\[[^\]]*\]|\([^)]*\)|【[^】]*】|「[^」]*」")
-# Files this program writes (ep.ja.ctc.romaji.ass, ep.ja.ctc.gloss-llm.ass, *.preview.ass, embedded.3.ja.ass).
-_OUTPUT = re.compile(r"\.(?:romaji|japanese|preview)\.ass$|\.gloss-[^.]+(?:\.preview)?\.ass$|^embedded\.\d+\.", re.I)
-SKIP_DIRS = {"work", ".git", "node_modules", "__pycache__"}
 
 
 @dataclass
 class Found:
     path: Path
-    language: str
     how: str  # human-readable reason, for the log
 
     def __str__(self) -> str:
         return f"{self.path} ({self.how})"
 
+
+# --- names: episode number, series title, language ------------------------------------------
 
 def episode_number(name: str) -> int | None:
     """Episode number in a file name: S01E03, 第3話, ep03, [03], "Show - 03", "Show_03"."""
@@ -76,7 +85,7 @@ def episode_number(name: str) -> int | None:
 
 
 def _strip_tags(name: str) -> str:
-    """File name without the subtitle extension and language parts: "ep01.ja.srt" -> "ep01"."""
+    """File name without the extension and language parts: "ep01.ja.srt" -> "ep01"."""
     p = Path(name)
     if p.suffix.lower() in SUB_EXTS | MEDIA_EXTS:
         name = p.stem
@@ -133,8 +142,9 @@ def same_series(a: str, b: str) -> bool:
     ca, cb = "".join(wa), "".join(wb)
     if ca == cb or (min(len(ca), len(cb)) >= 4 and (ca in cb or cb in ca)):
         return True
-    common = len(set(wa) & set(wb))
-    if common and common / min(len(set(wa)), len(set(wb))) >= 0.6:
+    sa, sb = set(wa), set(wb)
+    common = len(sa & sb)  # most words shared ("Dr Stone" / "Dr. STONE. STONE WARS"), not one in two
+    if common / max(len(sa), len(sb)) > 0.5 or (common >= 2 and common / min(len(sa), len(sb)) >= 0.8):
         return True
     return (len(wa) == 1 and _is_abbreviation(wa[0], wb)) or (len(wb) == 1 and _is_abbreviation(wb[0], wa))
 
@@ -191,110 +201,188 @@ def _dialogue_text(path: Path) -> str:
             return ""
 
 
-def file_language(path: Path) -> str | None:
-    return name_language(path) or text_language(_dialogue_text(path))
+def is_japanese(path: Path) -> bool:
+    lang = name_language(path)
+    return lang == "ja" or (lang is None and text_language(_dialogue_text(path)) in ("ja", None))
 
 
-def library_dirs(extra: list[Path] | None = None) -> list[Path]:
-    """Subtitle libraries: --subs-dir, $KARAOKE_SUBS_DIR, `subs_dirs` in config.toml, ~/.karaoke-subs/subs."""
-    from .paths import USER_DIR, config_path
+# --- the online catalog -------------------------------------------------------------------------
 
-    dirs = list(extra or [])
-    dirs += [Path(p) for p in os.environ.get("KARAOKE_SUBS_DIR", "").split(os.pathsep) if p]
-    cfg = config_path()
-    if cfg.is_file():
-        import tomllib
+class CatalogError(RuntimeError):
+    pass
+
+
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("karaoke-subs")
+    except Exception:
+        return "dev"
+
+
+class Catalog:
+    """The Japanese subtitle catalog on GitHub (one folder per series), read through the GitHub
+    API without an account. Listings are cached for a day and files for good, so a normal run
+    makes at most a few API calls (GitHub allows 60 an hour without a token; a GITHUB_TOKEN in
+    the environment raises that to 5,000)."""
+
+    def __init__(self, cache: Path | None = None, max_age: float = 86400):
+        from .paths import USER_DIR
+
+        self.cache = cache or USER_DIR / "subtitles"
+        self.max_age = max_age
+
+    def _request(self, url: str) -> bytes:
+        headers = {"User-Agent": f"karaoke-subs/{_version()}"}
+        if url.startswith("https://api.github.com/"):
+            headers["Accept"] = "application/vnd.github+json"
+            if token := os.environ.get("GITHUB_TOKEN"):
+                headers["Authorization"] = f"Bearer {token}"
         try:
-            with open(cfg, "rb") as f:
-                dirs += [Path(p).expanduser() for p in tomllib.load(f).get("subs_dirs", [])]
-        except (OSError, tomllib.TOMLDecodeError):
-            pass  # a broken config is reported by `karaoke models`; not this module's job
-    dirs.append(USER_DIR / "subs")
-    return [d.resolve() for d in dict.fromkeys(dirs) if d.is_dir()]
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 429) and e.headers.get("x-ratelimit-remaining") == "0":
+                wait = max(0, int(e.headers.get("x-ratelimit-reset") or time.time()) - int(time.time()))
+                raise CatalogError(f"GitHub's hourly limit for the subtitle catalog is used up; try again in "
+                                   f"{wait // 60 + 1} min (or set GITHUB_TOKEN)") from None
+            raise CatalogError(f"subtitle catalog: HTTP {e.code} for {url}") from None
+        except OSError as e:
+            raise CatalogError(f"subtitle catalog unreachable (no internet?): {e}") from None
+
+    def _tree(self, tree: str, recursive: bool = False) -> list[dict]:
+        """A folder of the catalog as [{path, type, size}], cached for max_age seconds."""
+        key = re.sub(r"[^\w.-]+", "_", tree)[:150] + (".r" if recursive else "") + ".json"
+        cached = self.cache / ".listings" / key
+        if cached.exists() and time.time() - cached.stat().st_mtime < self.max_age:
+            return json.loads(cached.read_text(encoding="utf-8"))
+        url = f"{CATALOG_API}/git/trees/{urllib.parse.quote(tree, safe=':/')}" + ("?recursive=1" if recursive else "")
+        items = [{"path": t["path"], "type": t["type"], "size": t.get("size", 0)}
+                 for t in json.loads(self._request(url))["tree"]]
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+        return items
+
+    def series(self) -> list[tuple[str, str]]:
+        """(section, folder name) of every series in the catalog."""
+        return [(section, t["path"]) for section in CATALOG_SECTIONS
+                for t in self._tree(f"{CATALOG_BRANCH}:subtitles/{section}") if t["type"] == "tree"]
+
+    def files(self, section: str, folder: str) -> list[dict]:
+        """Files of one series folder (subfolders included): [{path, size}], path relative to it."""
+        return [t for t in self._tree(f"{CATALOG_BRANCH}:subtitles/{section}/{folder}", recursive=True)
+                if t["type"] == "blob"]
+
+    def download(self, section: str, folder: str, file: dict) -> Path:
+        """The file, from the cache when its size matches."""
+        dest = self.cache / folder / file["path"]
+        if not (dest.exists() and dest.stat().st_size == file.get("size", -1)):
+            path = urllib.parse.quote(f"subtitles/{section}/{folder}/{file['path']}")
+            data = self._request(f"{CATALOG_RAW}/{path}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+        return dest
 
 
-def _sub_files(folder: Path, depth: int) -> list[Path]:
-    out: list[Path] = []
-    try:
-        entries = sorted(folder.iterdir())
-    except OSError:
-        return out
-    for p in entries:
-        if p.is_file() and p.suffix.lower() in SUB_EXTS and not _OUTPUT.search(p.name):
-            out.append(p)
-        elif p.is_dir() and depth > 0 and p.name.lower() not in SKIP_DIRS:
-            out += _sub_files(p, depth - 1)
-    return out
+def _similarity(a: str, b: str) -> float:
+    wa, wb = set(_words(a)), set(_words(b))
+    if "".join(_words(a)) == "".join(_words(b)):
+        return 2.0
+    return len(wa & wb) / len(wa | wb) if wa and wb else 0.0
 
 
-def _media_count(folder: Path) -> int:
-    try:
-        return sum(1 for p in folder.iterdir() if p.is_file() and p.suffix.lower() in MEDIA_EXTS)
-    except OSError:
-        return 0
-
-
-def candidates(media: Path, libraries: list[Path] | None = None) -> list[tuple[int, Path, str]]:
-    """(score, subtitle file, reason) for every file that may belong to `media`, best first.
-    The language is not checked here."""
+def video_titles(media: Path) -> list[str]:
+    """Series titles to search for: from the file name, then from the folder name (unless the
+    folder is a generic one like Downloads)."""
     media = media.resolve()
-    folder = media.parent
-    episode = episode_number(media.name)
-    titles = [t for t in (series_title(media.name), series_title(folder.name)) if t]
-    found: dict[Path, tuple[int, str]] = {}
-
-    def consider(sub: Path, base: int, where: str) -> None:
-        sub_stem = _strip_tags(sub.name)
-        if sub_stem.lower() == media.stem.lower() or sub.stem.lower().startswith(media.stem.lower() + "."):
-            score, how = base + 30, f"same name, {where}"
-        elif episode is not None and episode_number(sub.name) == episode:
-            sub_title = series_title(sub.name)
-            if sub_title and titles and not any(same_series(sub_title, t) for t in titles):
-                return  # another show's episode with the same number
-            score, how = base + 20, f"episode {episode}, {where}"
-        elif episode is None and _media_count(folder) == 1 and episode_number(sub.name) is None:
-            score, how = base + 10, f"only video in its folder, {where}"  # a film
-        else:
-            return
-        if sub not in found or found[sub][0] < score:
-            found[sub] = (score, how)
-
-    for sub in _sub_files(folder, 0):
-        consider(sub, 3, "next to the video")
-    for d in folder.iterdir() if folder.is_dir() else []:
-        if d.is_dir() and (d.name.lower() in SUB_DIR_NAMES or any(same_series(d.name, t) for t in titles)):
-            for sub in _sub_files(d, 2):
-                consider(sub, 2, f"in {d.name}/")
-    for lib in libraries if libraries is not None else library_dirs():
-        series_dirs = [d for d in lib.iterdir() if d.is_dir() and any(same_series(d.name, t) for t in titles)]
-        for d in series_dirs:
-            for sub in _sub_files(d, 2):
-                consider(sub, 1, f"library {d}")
-    return sorted(((s, p, how) for p, (s, how) in found.items()), key=lambda x: (-x[0], str(x[1])))
+    folder = series_title(media.parent.name)
+    titles = [series_title(media.name), "" if folder.lower() in GENERIC_FOLDERS else folder]
+    return list(dict.fromkeys(t for t in titles if t))
 
 
-def find_subtitles(media: Path, language: str = "ja", libraries: list[Path] | None = None) -> Found | None:
-    """The best subtitle file in `language` ("ja" or "en") for `media`, or None."""
-    for _, path, how in candidates(media, libraries):
-        if file_language(path) == language:
-            return Found(path, language, how)
+def find_series(catalog: Catalog, media: Path) -> list[tuple[str, str]]:
+    """Catalog folders that may hold the video's series, best first: titles from the file name,
+    then the folder name; the closest name first (Dr. STONE before Dr. STONE. STONE WARS for
+    "Dr Stone"); films prefer the movie section."""
+    film = episode_number(media.name) is None
+    folders = catalog.series()
+    for title in video_titles(media):
+        matches = [(s, f) for s, f in folders if same_series(title, f)]
+        if matches:
+            return sorted(matches, key=lambda m: (-_similarity(title, m[1]), (m[0] == "anime_movie") != film))
+    return []
+
+
+def _zip_members(path: Path) -> list[tuple[str, bytes]]:
+    try:
+        with zipfile.ZipFile(path) as z:
+            return [(n, z.read(n)) for n in z.namelist() if Path(n).suffix.lower() in SUB_EXTS]
+    except (zipfile.BadZipFile, OSError):
+        return []
+
+
+def _episode_files(catalog: Catalog, section: str, folder: str, episode: int | None) -> list[Path]:
+    """Japanese subtitle files of `episode` (None: a film's), downloaded; a season .zip is
+    unpacked when no single file matches."""
+    files = catalog.files(section, folder)
+    subs = [f for f in files if Path(f["path"]).suffix.lower() in SUB_EXTS
+            and (episode is None or episode_number(Path(f["path"]).name) == episode)]
+    for f in sorted(subs, key=lambda f: f["path"]):
+        if is_japanese(p := catalog.download(section, folder, f)):
+            return [p]
+    for f in files:
+        if Path(f["path"]).suffix.lower() != ".zip":
+            continue
+        pack = catalog.download(section, folder, f)
+        out = []
+        for name, data in _zip_members(pack):
+            if episode is not None and episode_number(Path(name).name) != episode:
+                continue
+            dest = pack.with_suffix("") / Path(name).name
+            if not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+            if is_japanese(dest):
+                out.append(dest)
+        if out:
+            return out
+    return []
+
+
+def find_online(media: Path, catalog: Catalog | None = None) -> Found | None:
+    """Download the Japanese subtitles of `media` from the online catalog; None when not found."""
+    catalog = catalog or Catalog()
+    episode = episode_number(media.name)  # None: a film
+    for section, folder in find_series(catalog, media)[:3]:  # an empty folder: try the next best
+        if files := _episode_files(catalog, section, folder, episode):
+            what = f"episode {episode}" if episode is not None else "film"
+            return Found(files[0], f"online catalog: {folder}, {what}")
     return None
 
 
-def series_subtitles(found: Path, language: str = "ja") -> list[Path]:
-    """The other episodes' subtitles in the same folder as `found` (for --names-from auto)."""
-    title = series_title(found.name)
+def series_online(media: Path, catalog: Catalog | None = None, limit: int = 30) -> list[Path]:
+    """The other episodes' Japanese subtitles of the same series (for --names-from auto): one
+    file per episode, at most `limit` episodes."""
+    catalog = catalog or Catalog()
+    matches = find_series(catalog, media)
+    if not matches:
+        return []
+    section, folder = matches[0]
+    own = episode_number(media.name)
+    by_episode: dict[int, dict] = {}
+    for f in sorted(catalog.files(section, folder), key=lambda f: f["path"]):
+        n = episode_number(Path(f["path"]).name)
+        if n is not None and n != own and Path(f["path"]).suffix.lower() in SUB_EXTS:
+            by_episode.setdefault(n, f)
     out = []
-    for p in _sub_files(found.parent, 0):
-        if p == found or episode_number(p.name) is None:
-            continue
-        other = series_title(p.name)
-        if title and other and not same_series(title, other):
-            continue
-        if file_language(p) == language:
+    for n in sorted(by_episode)[:limit]:
+        p = catalog.download(section, folder, by_episode[n])
+        if is_japanese(p):
             out.append(p)
     return out
 
+
+# --- a track inside the video -------------------------------------------------------------------
 
 def embedded_tracks(media: Path) -> list[dict]:
     """Text subtitle streams inside `media`: [{index, codec, language, title}]."""
@@ -320,8 +408,8 @@ def extract_embedded(media: Path, out_dir: Path, language: str = "ja") -> Found 
     tagged = [t for t in tracks if t["language"] in ISO_639_2.get(language, ())
               or language == "ja" and re.search(r"japanese|日本語", t["title"], re.I)]
     untagged = [t for t in tracks if t["language"] in ("", "und") and t not in tagged]
-    out_dir.mkdir(parents=True, exist_ok=True)
     for t in tagged + untagged:
+        out_dir.mkdir(parents=True, exist_ok=True)
         ext = ".ass" if t["codec"] in ("ass", "ssa") else ".srt"
         out = out_dir / f"embedded.{t['index']}.{language}{ext}"
         if not out.exists() or out.stat().st_mtime < media.stat().st_mtime:
@@ -330,10 +418,5 @@ def extract_embedded(media: Path, out_dir: Path, language: str = "ja") -> Found 
             if r.returncode != 0:
                 continue
         if t in tagged or text_language(_dialogue_text(out)) == language:
-            return Found(out, language, f"track {t['index']} inside the video")
+            return Found(out, f"track {t['index']} inside the video")
     return None
-
-
-def locate(media: Path, language: str, out_dir: Path, libraries: list[Path] | None = None) -> Found | None:
-    """Subtitle file, else a track inside the video."""
-    return find_subtitles(media, language, libraries) or extract_embedded(media, out_dir, language)
