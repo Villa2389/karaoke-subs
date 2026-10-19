@@ -1,0 +1,26 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# Outputs and large local files (never committed)
+work/
+models/
+tools/
+data/dict/
+data/**/*.wav
+data/**/*.mp3
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Subtitles, videos and benchmark data stay local (copyrighted)
+data/
+CLAUDE.md

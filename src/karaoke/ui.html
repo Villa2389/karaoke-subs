@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karaoke Subs</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --text: #1d1c1a; --muted: #6b6862; --line: #e2dfd8;
+  --accent: #c2410c; --accent-text: #ffffff; --ok: #15803d; --bad: #b91c1c; --log: #1b1b1f; --log-text: #e7e5e4;
+  --field: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413; --panel: #1f1e1c; --text: #ecebe7; --muted: #a09d96; --line: #34322e;
+    --accent: #f97316; --accent-text: #1a0e05; --ok: #4ade80; --bad: #f87171; --log: #0d0d0c; --log-text: #e7e5e4;
+    --field: #191917;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+header { padding: 18px 24px 6px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 20px; }
+header span { color: var(--muted); }
+main { display: grid; grid-template-columns: minmax(340px, 460px) minmax(0, 1fr); gap: 16px; padding: 12px 24px 24px; }
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; } header { padding: 16px 16px 4px; } }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+label.f { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 13px; }
+label.f small { font-weight: 400; color: var(--muted); }
+.row { display: flex; gap: 6px; }
+.note { color: var(--muted); font-size: 12px; margin-top: 4px; min-height: 0; word-break: break-all; }
+input[type=text], input[type=number], select {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--text); font: inherit; min-width: 0;
+}
+button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); color: var(--text); cursor: pointer; white-space: nowrap; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+.checks label { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.checks small { color: var(--muted); display: block; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+details summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+.actions { display: flex; gap: 8px; margin-top: 4px; }
+.actions .primary { flex: 1; padding: 10px; }
+#claudeOpts, #modelOpts { border-left: 3px solid var(--line); padding-left: 10px; margin: 4px 0 4px 24px; }
+.status { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.status.running { color: var(--accent); border-color: var(--accent); }
+.status.done { color: var(--ok); border-color: var(--ok); }
+.status.failed, .status.stopped { color: var(--bad); border-color: var(--bad); }
+.head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.head h2 { margin: 0; flex: 1; }
+pre#log { background: var(--log); color: var(--log-text); border-radius: 8px; padding: 10px 12px; margin: 0; height: 280px; overflow: auto;
+  font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+#files { width: 100%; border-collapse: collapse; }
+#files td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+#files td.name { word-break: break-all; }
+#files td.meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+#files td.btns { text-align: right; white-space: nowrap; }
+#files td.btns button, #files td.btns a { padding: 3px 8px; font-size: 12px; margin-left: 4px; }
+a.btn { display: inline-block; border: 1px solid var(--line); border-radius: 6px; color: var(--text); text-decoration: none; }
+tr.key td.name { font-weight: 600; }
+.muted { color: var(--muted); }
+.err { color: var(--bad); margin: 8px 0 0; min-height: 1em; }
+video { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; display: none; }
+.pv { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 8px; }
+.pv label.f { margin-top: 0; }
+.pv > div { flex: 1; min-width: 90px; }
+#wordTabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+#wordTabs button { font-size: 12px; padding: 4px 10px; }
+#wordTabs button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.cardTop { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; }
+.card .jp { font-size: 34px; margin: 6px 0 2px; }
+.card .rd { margin-bottom: 8px; }
+.card .ex { background: var(--bg); border-radius: 6px; padding: 6px 9px; margin-bottom: 8px; }
+.card .gl { font-size: 18px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header><h1>Karaoke Subs</h1><span>anime episode + Japanese subtitles → word-by-word karaoke with English glosses</span></header>
+<main>
+<div>
+  <section>
+    <h2>1 · Episode</h2>
+    <label class="f" for="media">Video or audio file</label>
+    <div class="row"><input type="text" id="media" placeholder="C:\Videos\episode01.mkv"><button data-pick="media" data-kind="media">Browse…</button></div>
+    <label class="f" for="subs">Japanese subtitles <small>(.srt / .ass, e.g. from jimaku.cc; empty = found automatically)</small></label>
+    <div class="row"><input type="text" id="subs" placeholder="auto: next to the video, in a series folder, or inside the video"><button id="findSubs" title="Look for Japanese and English subtitles for this video">Find</button><button data-pick="subs" data-kind="subs">Browse…</button></div>
+    <div class="note" id="subsNote"></div>
+    <label class="f" for="en_subs">English subtitles <small>(optional: better word senses + name spelling)</small></label>
+    <div class="row"><input type="text" id="en_subs"><button data-pick="en_subs" data-kind="subs">Browse…</button></div>
+  </section>
+
+  <section>
+    <h2>2 · English glosses</h2>
+    <div class="checks">
+      <label><input type="checkbox" name="gloss" value="claude"><span>Claude <small>through Claude Code on your Claude login · ~3 min</small></span></label>
+      <div id="claudeOpts">
+        <div class="grid2">
+          <div><label class="f" for="claude_model">Model</label>
+            <select id="claude_model">
+              <option value="claude-haiku-5-5">Haiku 5.5 (default)</option>
+              <option value="claude-sonnet-5-5">Sonnet 5.5</option>
+              <option value="claude-opus-5-5">Opus 5.5 (best, ~20× usage)</option>
+            </select></div>
+          <div><label class="f" for="claude_effort">Effort</label>
+            <select id="claude_effort">
+              <option>low</option><option>medium</option><option>high</option><option selected>xhigh</option><option>max</option>
+            </select></div>
+        </div>
+        <div class="checks"><label><input type="checkbox" id="claude_glossary"><span>Glossary pass <small>one gloss per word across the episode (+~2 points)</small></span></label></div>
+      </div>
+      <label><input type="checkbox" name="gloss" value="llm"><span>Another model <small>local Qwen (free, GPU, ~8 min) or an API model from your config</small></span></label>
+      <div id="modelOpts">
+        <label class="f" for="model">Model profile</label>
+        <div class="row"><select id="model"></select><button id="testModel" title="send one tiny request to this model">Test</button></div>
+        <p class="muted" id="modelNote" style="margin:4px 0 0"></p>
+      </div>
+      <label><input type="checkbox" name="gloss" value="dict"><span>Dictionary only <small>JMdict, instant, rough</small></span></label>
+    </div>
+    <p class="muted" style="margin:8px 0 0">None ticked: timing only (Japanese + romaji karaoke).</p>
+  </section>
+
+  <section>
+    <h2>3 · Extras</h2>
+    <div class="checks">
+      <label><input type="checkbox" id="romaji" checked><span>Romaji row <small>also write a version with romaji above the English</small></span></label>
+      <label><input type="checkbox" id="review"><span>Review sheet <small>.tsv of suspicious glosses (runs “Another model” if no model is ticked)</small></span></label>
+    </div>
+    <details>
+      <summary>Advanced</summary>
+      <div class="grid2">
+        <div><label class="f" for="method">Timing</label>
+          <select id="method"><option value="ctc">CTC alignment</option><option value="proportional">proportional (no audio)</option></select></div>
+        <div><label class="f" for="lead">Lead (s)</label><input type="number" id="lead" step="0.01" placeholder="0.03"></div>
+        <div><label class="f" for="stream">Audio stream</label><input type="text" id="stream" placeholder="0:a:0"></div>
+        <div><label class="f" for="tag">Name suffix</label><input type="text" id="tag"></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="no_sync"><span>Subtitles already in sync <small>skip the automatic shift</small></span></label>
+        <label><input type="checkbox" id="vocals"><span>Isolate vocals first <small>needs the separation extra</small></span></label>
+        <label><input type="checkbox" id="no_verify"><span>Skip the verifier <small>second look at suspicious glosses (local and API models)</small></span></label>
+      </div>
+      <label class="f" for="out">Output folder <small>(default work\&lt;episode name&gt;)</small></label>
+      <div class="row"><input type="text" id="out"><button data-pick="out" data-kind="folder">Browse…</button></div>
+      <label class="f" for="reference">Hand-made karaoke .ass to score against</label>
+      <div class="row"><input type="text" id="reference"><button data-pick="reference" data-kind="subs">Browse…</button></div>
+      <label class="f" for="fixes">Review sheet with fixes to apply</label>
+      <div class="row"><input type="text" id="fixes"><button data-pick="fixes" data-kind="tsv">Browse…</button></div>
+      <label class="f" for="llm_model">Local model (.gguf)</label>
+      <div class="row"><input type="text" id="llm_model"><button data-pick="llm_model" data-kind="gguf">Browse…</button></div>
+    </details>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="run">Make karaoke subtitles</button>
+    <button id="stop" disabled>Stop</button>
+  </div>
+  <p class="err" id="err"></p>
+</div>
+
+<div>
+  <section>
+    <div class="head"><h2>Progress</h2><span class="status" id="status">idle</span></div>
+    <pre id="log">Choose an episode and its Japanese subtitles, then press “Make karaoke subtitles”.</pre>
+  </section>
+
+  <section>
+    <div class="head"><h2>Results</h2><button id="refresh">Refresh</button><button id="openFolder">Open folder</button></div>
+    <p class="muted" id="folder" style="margin:0 0 8px;word-break:break-all"></p>
+    <div class="pv">
+      <div><label class="f" for="pv_start">Preview from (s)</label><input type="number" id="pv_start" min="0" placeholder="0"></div>
+      <div><label class="f" for="pv_duration">Length (s)</label><input type="number" id="pv_duration" min="1" placeholder="whole episode"></div>
+      <div class="checks" style="flex:0 0 auto"><label><input type="checkbox" id="pv_romaji" checked><span>Romaji row</span></label></div>
+    </div>
+    <table id="files"></table>
+    <video id="player" controls></video>
+  </section>
+
+  <section id="words">
+    <div class="head"><h2>Words</h2><span class="muted" id="knownCount"></span><button id="wordsReload">Refresh</button></div>
+    <p class="muted" style="margin:0 0 8px">Words you know stay in romaji in the karaoke. Words heard often, and the most
+      heard words of each series you made subtitles for, are asked here once.</p>
+    <div id="wordTabs"></div>
+    <div id="card" class="card" hidden>
+      <div class="cardTop"><span id="cardSection"></span><span class="muted" id="cardPos"></span></div>
+      <div class="jp" id="cardWord"></div>
+      <div class="rd"><span id="cardRomaji"></span> <span class="muted" id="cardReading"></span> · <span class="muted" id="cardHeard"></span></div>
+      <div class="ex" id="cardExample"></div>
+      <div class="gl" id="cardGloss" hidden></div>
+      <div class="actions">
+        <button class="primary" id="reveal">Show meaning</button>
+        <button class="primary" id="knew" hidden>I knew it</button>
+        <button id="didnt" hidden>Didn't know</button>
+        <button id="skip">Skip</button>
+      </div>
+      <p class="muted" id="cardMsg" style="margin:8px 0 0;min-height:1em"></p>
+    </div>
+    <p class="muted" id="wordsEmpty">Loading your words…</p>
+  </section>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const FIELDS = ["media", "subs", "en_subs", "claude_model", "claude_effort", "claude_glossary", "romaji", "review",
+  "method", "lead", "stream", "tag", "no_sync", "vocals", "no_verify", "out", "reference", "fixes", "llm_model", "model",
+  "pv_start", "pv_duration", "pv_romaji"];
+
+function form() {
+  const f = {};
+  for (const k of FIELDS) { const el = $(k); f[k] = el.type === "checkbox" ? el.checked : el.value; }
+  f.gloss = [...document.querySelectorAll("input[name=gloss]:checked")].map(e => e.value);
+  return f;
+}
+function save() { try { localStorage.setItem("karaoke-ui", JSON.stringify(form())); } catch (e) {} }
+function load() {
+  let f = null;
+  try { f = JSON.parse(localStorage.getItem("karaoke-ui")); } catch (e) {}
+  if (!f) { document.querySelector("input[name=gloss][value=claude]").checked = true; return; }
+  for (const k of FIELDS) { const el = $(k); if (!el || f[k] === undefined) continue;
+    if (el.type === "checkbox") el.checked = f[k]; else el.value = f[k]; }
+  for (const el of document.querySelectorAll("input[name=gloss]")) el.checked = (f.gloss || []).includes(el.value);
+}
+function syncClaude() {
+  $("claudeOpts").style.display = document.querySelector("input[name=gloss][value=claude]").checked ? "" : "none";
+  $("modelOpts").style.display = document.querySelector("input[name=gloss][value=llm]").checked ? "" : "none";
+  const m = models.find(x => x.name === $("model").value);
+  $("modelNote").textContent = m && m.needs ? "Set the environment variable " + m.needs + " (your API key) and restart karaoke ui." : "";
+}
+let models = [];
+async function loadModels() {
+  try {
+    const j = await (await fetch("/api/models")).json();
+    if (j.error) throw new Error(j.error);
+    models = j.profiles;
+    const keep = $("model").value || (JSON.parse(localStorage.getItem("karaoke-ui") || "{}").model);
+    $("model").innerHTML = "";
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m.name;
+      o.textContent = m.name + " · " + m.label + (m.name === j.default ? " (default)" : "") + (m.needs ? " · needs " + m.needs : "");
+      $("model").append(o);
+    }
+    $("model").value = models.some(m => m.name === keep) ? keep : j.default;
+    $("modelOpts").title = "Profiles: built-in + " + j.config;
+  } catch (e) { $("modelNote").textContent = "model profiles: " + e.message; }
+  syncClaude();
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+let next = 0, polling = false, lastStatus = "idle";
+async function poll() {
+  if (polling) return; polling = true;
+  try {
+    while (true) {
+      const j = await (await fetch("/api/job?since=" + next)).json();
+      if (j.lines.length) {
+        const log = $("log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+        log.textContent += (log.textContent ? "\n" : "") + j.lines.join("\n");
+        if (atEnd) log.scrollTop = log.scrollHeight;
+      }
+      next = j.next;
+      setStatus(j.status);
+      if (j.status !== "running") {
+        const was = lastStatus; lastStatus = j.status;
+        if (was === "running") { refresh(j.cmd === "preview"); if (j.cmd === "time") loadWords(); }
+        break;
+      }
+      lastStatus = j.status;
+      await new Promise(r => setTimeout(r, 700));
+    }
+  } finally { polling = false; }
+}
+function setStatus(s) {
+  const el = $("status"); el.textContent = s; el.className = "status " + s;
+  const busy = s === "running";
+  $("run").disabled = busy; $("stop").disabled = !busy;
+  for (const b of document.querySelectorAll("button[data-render]")) b.disabled = busy;
+}
+async function start(url, body) {
+  $("err").textContent = "";
+  try {
+    await post(url, body);
+    $("log").textContent = ""; next = 0; lastStatus = "running"; poll();
+  } catch (e) { $("err").textContent = e.message; }
+}
+
+const KB = n => n > 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+const fileUrl = (p, dl) => "/file?path=" + encodeURIComponent(p) + (dl ? "&download=1" : "");
+function describe(name) {
+  if (name.endsWith(".preview.mp4")) return "preview video";
+  if (/\.gloss-[\w.-]+\+romaji\.ass$/.test(name)) return "English + romaji karaoke";
+  if (/\.gloss-[\w.-]+\.ass$/.test(name)) return "English karaoke";
+  if (name.endsWith(".japanese.ass")) return "Japanese karaoke";
+  if (name.endsWith(".romaji.ass")) return "romaji karaoke";
+  if (/\.review(-[\w.-]+)?\.tsv$/.test(name)) return "review sheet";
+  return "";
+}
+async function refresh(playNewest) {
+  const f = form();
+  if (!f.media) { $("files").innerHTML = ""; $("folder").textContent = ""; return; }
+  const j = await (await fetch("/api/outputs?" + new URLSearchParams({ media: f.media, out: f.out }))).json();
+  $("folder").textContent = j.files.length ? j.folder : "Nothing yet in " + j.folder;
+  const rows = j.files.filter(x => !/\.preview\.ass$|cache|^audio16k|^vocals16k|\.labels\.json$/.test(x.name));
+  $("files").innerHTML = "";
+  for (const x of rows) {
+    const tr = document.createElement("tr"), what = describe(x.name);
+    if (what) tr.className = "key";
+    const name = document.createElement("td"); name.className = "name"; name.textContent = x.name;
+    const meta = document.createElement("td"); meta.className = "meta"; meta.textContent = (what ? what + " · " : "") + KB(x.size);
+    const btns = document.createElement("td"); btns.className = "btns";
+    if (/\.gloss-[\w.+-]+\.ass$|\.japanese\.ass$/.test(x.name)) {
+      const b = document.createElement("button"); b.textContent = "Render preview"; b.dataset.render = x.path;
+      b.onclick = () => { const p = form(); start("/api/preview", { media: p.media, gloss: x.path,
+        romaji: p.pv_romaji && !x.name.includes("+romaji") && x.name.includes(".gloss-"), start: p.pv_start, duration: p.pv_duration }); };
+      btns.append(b);
+    }
+    if (x.name.endsWith(".mp4")) {
+      const b = document.createElement("button"); b.textContent = "Play";
+      b.onclick = () => play(x.path); btns.append(b);
+    } else {
+      const a = document.createElement("a"); a.className = "btn"; a.textContent = "View"; a.href = fileUrl(x.path); a.target = "_blank"; btns.append(a);
+    }
+    const d = document.createElement("a"); d.className = "btn"; d.textContent = "Save"; d.href = fileUrl(x.path, true); btns.append(d);
+    tr.append(name, meta, btns); $("files").append(tr);
+  }
+  setStatus(lastStatus);
+  if (playNewest) { const v = rows.find(x => x.name.endsWith(".mp4")); if (v) play(v.path); }
+}
+function play(path) { const v = $("player"); v.src = fileUrl(path) + "&t=" + Date.now(); v.style.display = "block"; v.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+
+document.querySelectorAll("button[data-pick]").forEach(b => b.onclick = async () => {
+  b.disabled = true;
+  try { const j = await post("/api/pick", { kind: b.dataset.kind });
+    if (j.path) { $(b.dataset.pick).value = j.path; save(); if (b.dataset.pick === "media" || b.dataset.pick === "out") refresh();
+      if (b.dataset.pick === "media") findSubs(true); } }
+  finally { b.disabled = false; }
+});
+document.addEventListener("change", e => { save(); syncClaude(); if (e.target.id === "media" || e.target.id === "out") refresh(); });
+async function findSubs(onlyEmpty) {
+  const f = form();
+  if (!f.media) return;
+  try {
+    const j = await post("/api/find-subs", { media: f.media });
+    if (j.subs && !(onlyEmpty && f.subs)) $("subs").value = j.subs;
+    if (j.en_subs && !(onlyEmpty && f.en_subs)) $("en_subs").value = j.en_subs;
+    $("subsNote").textContent = j.subs ? "Found: " + j.how + (j.en_subs ? "; English: " + j.en_how : "")
+      : "No subtitle file found for this video (a track inside the video is still tried when you run).";
+    save();
+  } catch (e) { $("subsNote").textContent = e.message; }
+}
+$("findSubs").onclick = () => findSubs(false);
+document.addEventListener("change", e => { if (e.target.id === "media") findSubs(true); });
+$("run").onclick = () => { save(); start("/api/time", form()); };
+$("testModel").onclick = () => start("/api/test-model", { model: $("model").value });
+$("stop").onclick = () => post("/api/stop");
+$("refresh").onclick = () => refresh();
+$("openFolder").onclick = async () => { try { await post("/api/open", form()); } catch (e) { $("err").textContent = e.message; } };
+
+// Words: the questions of `karaoke learn`, one section (heard often, or a series) at a time.
+let words = { sections: [] }, sec = 0, pos = 0;
+async function loadWords() {
+  try { words = await (await fetch("/api/learn")).json(); }
+  catch (e) { $("wordsEmpty").hidden = false; $("wordsEmpty").textContent = "Could not read your words: " + e.message; return; }
+  $("knownCount").textContent = words.known + " known";
+  const first = words.sections.findIndex(s => s.cards.length);
+  sec = Math.max(0, words.sections[sec] && words.sections[sec].cards.length ? sec : first); pos = 0;
+  drawWords();
+}
+function drawWords() {
+  const tabs = $("wordTabs"); tabs.innerHTML = "";
+  words.sections.forEach((s, i) => {
+    if (!s.cards.length && i) return;  // a series with nothing new to ask
+    const b = document.createElement("button"); b.textContent = `${s.title} (${s.cards.length})`; b.title = s.note;
+    if (i === sec) b.className = "on";
+    b.onclick = () => { sec = i; pos = 0; drawWords(); }; tabs.append(b);
+  });
+  const s = words.sections[sec], c = s && s.cards[pos];
+  $("card").hidden = !c; $("wordsEmpty").hidden = !!c;
+  if (!c) { $("wordsEmpty").textContent = words.sections.some(x => x.cards.length)
+      ? "Nothing left in this section." : "Nothing to ask yet: make subtitles for an episode with English glosses first."; return; }
+  $("cardSection").textContent = s.title + " · " + s.note;
+  $("cardPos").textContent = (pos + 1) + " / " + s.cards.length;
+  $("cardWord").textContent = c.word; $("cardRomaji").textContent = c.romaji;
+  $("cardReading").textContent = c.reading && c.reading !== c.word ? "(" + c.reading + ")" : "";
+  $("cardHeard").textContent = "heard " + c.heard + "×" + (c.kind === "series" ? " in this series" : "");
+  $("cardExample").textContent = c.example; $("cardGloss").textContent = c.gloss;
+  showMeaning(false);
+}
+function showMeaning(on) {
+  $("cardGloss").hidden = !on; $("reveal").hidden = on; $("knew").hidden = !on; $("didnt").hidden = !on;
+}
+async function answerWord(knew) {
+  const s = words.sections[sec], c = s.cards[pos];
+  try {
+    const j = await post("/api/learn/answer", { word: c.word, kind: c.kind, knew });
+    $("cardMsg").textContent = knew ? `${c.word} added to your known words: it stays in romaji from now on.`
+      : j.again_after ? `${c.word}: asked again after ${j.again_after} more times heard.` : `${c.word}: not asked again.`;
+    if (knew) words.known++;
+    $("knownCount").textContent = words.known + " known";
+    for (const x of words.sections) x.cards = x.cards.filter(y => y.word !== c.word);  // asked once, everywhere
+    if (pos >= s.cards.length) pos = 0;
+    drawWords();
+  } catch (e) { $("cardMsg").textContent = e.message; }
+}
+$("reveal").onclick = () => showMeaning(true);
+$("knew").onclick = () => answerWord(true);
+$("didnt").onclick = () => answerWord(false);
+$("skip").onclick = () => { const s = words.sections[sec]; pos = (pos + 1) % s.cards.length; $("cardMsg").textContent = ""; drawWords(); };
+$("wordsReload").onclick = () => loadWords();
+
+load(); syncClaude(); loadModels(); refresh(); loadWords();
+fetch("/api/job").then(r => r.json()).then(j => { if (j.status !== "idle") { $("log").textContent = ""; lastStatus = j.status; poll(); } });
+</script>
+</body>
+</html>

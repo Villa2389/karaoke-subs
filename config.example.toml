@@ -1,0 +1,104 @@
+# Model profiles for karaoke-subs.
+# Copy to ~/.karaoke-subs/config.toml (or point $KARAOKE_CONFIG / --config at it), keep the
+# profiles you want, then:
+#   uv run karaoke models                 list profiles, * = default, [needs KEY] = key not set
+#   uv run karaoke models --test NAME     one tiny request, to check a profile works
+#   uv run karaoke time ep.mkv ep.ja.srt --gloss NAME            or  --gloss llm --model NAME
+#
+# API keys are NEVER written here: `api_key_env` names the environment variable holding the key.
+#   PowerShell (this window):  $env:OPENROUTER_API_KEY = "sk-or-..."
+#   PowerShell (permanent):    setx OPENROUTER_API_KEY "sk-or-..."   (open a new window after)
+#   bash/zsh:                  export OPENROUTER_API_KEY=sk-or-...
+#
+# Built-in profiles (no config needed):
+#   local   llama-server with ~/.karaoke-subs/models/Qwen3.5-9B-Q4_K_M.gguf (free, needs an 8 GB GPU)
+#   haiku   Claude Haiku 5.5 through Claude Code on your Claude login (no API key)
+#   sonnet  Claude Sonnet 5.5, same way
+#   opus    Claude Opus 5.5, same way (best quality, ~20x the usage of haiku)
+# A [profiles.<built-in name>] table changes only the settings it lists.
+#
+# Settings (all optional except kind, and model/base_url where noted):
+#   kind         openai | anthropic | claude-code | llama-server
+#   model        model name as the provider spells it
+#   base_url     openai: the URL that ends before /chat/completions
+#   api_key_env  environment variable with the API key
+#   effort       anthropic / claude-code: low | medium | high | xhigh | max
+#   batch        subtitle lines per request (bigger = fewer calls, needs a smarter model)
+#   jobs         requests at once (lower it if you hit rate limits)
+#   context      previous lines shown as context
+#   verify       second look at suspicious glosses (one more request per flagged line)
+#   json_mode    openai: "schema" (constrained JSON, default) | "object" | "none" (servers without json_schema)
+#   strict       openai: strict JSON schema (OpenAI itself supports it; many others reject it)
+#   temperature  number, or false for models that only accept the default (OpenAI reasoning models)
+#   max_tokens, timeout, extra (table merged into the request body)
+#   gguf, server, port, ctx   llama-server: model file, llama-server executable, port, context size
+#                             (relative gguf paths are looked up in ~/.karaoke-subs)
+
+# Profile used by `--gloss llm` when --model is not given (built-in default: local).
+default = "haiku"
+
+# Subtitle libraries searched when `karaoke time` is given no subtitle file: one folder per
+# series, named like the series (or its usual abbreviation), the files named with the episode
+# number. ~/.karaoke-subs/subs is always searched too.
+#   D:/Subs/Dr. Stone/Dr.Stone.S01E05.ja.srt
+#   D:/Subs/wataten/ep05.ja.srt
+# subs_dirs = ["D:/Subs"]
+
+# --- Hosted APIs (OpenAI-compatible) ----------------------------------------------------------
+
+[profiles.openrouter]          # one key, hundreds of models: https://openrouter.ai/models
+kind = "openai"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+model = "google/gemini-2.5-flash"
+
+[profiles.openai]
+kind = "openai"
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+model = "gpt-5-mini"
+temperature = false            # reasoning models accept only the default temperature
+
+[profiles.gemini]              # Google AI Studio key, OpenAI-compatible endpoint
+kind = "openai"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env = "GEMINI_API_KEY"
+model = "gemini-2.5-flash"
+
+[profiles.deepseek]
+kind = "openai"
+base_url = "https://api.deepseek.com/v1"
+api_key_env = "DEEPSEEK_API_KEY"
+model = "deepseek-chat"
+json_mode = "object"           # no json_schema there: the schema goes into the prompt
+
+# --- Claude API (pay per token; `uv sync --extra anthropic`) ----------------------------------
+
+[profiles.claude-api]
+kind = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+model = "claude-haiku-5-5"
+effort = "high"
+
+# --- Local servers (free, your GPU) -----------------------------------------------------------
+
+[profiles.ollama]              # `ollama pull qwen3:8b`, Ollama running
+kind = "openai"
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen3:8b"
+batch = 4
+jobs = 1
+context = 3
+
+[profiles.lmstudio]            # LM Studio > Developer > Start server
+kind = "openai"
+base_url = "http://127.0.0.1:1234/v1"
+model = "qwen3-8b"
+batch = 4
+jobs = 1
+context = 3
+
+# The built-in `local` profile, with another model file / llama-server build:
+# [profiles.local]
+# gguf = "D:/models/Qwen3.5-9B-Q4_K_M.gguf"
+# server = "D:/llama.cpp/llama-server.exe"     # default: ~/.karaoke-subs/tools/llama-cuda/, else PATH
